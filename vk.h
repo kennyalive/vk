@@ -103,8 +103,7 @@ VkPipelineLayout vk_create_pipeline_layout(
 Vk_Graphics_Pipeline_State get_default_graphics_pipeline_state();
 
 VkPipeline vk_create_graphics_pipeline(const Vk_Graphics_Pipeline_State& state,
-    VkShaderModule vertex_shader, VkShaderModule fragment_shader,
-    VkPipelineLayout pipeline_layout, const char* name);
+    VkShaderModule vertex_shader, VkShaderModule fragment_shader, const char* name);
 
 VkPipeline vk_create_compute_pipeline(VkShaderModule compute_shader,
     VkPipelineLayout pipeline_layout, const char* name);
@@ -253,22 +252,6 @@ struct Vk_Shader_Module {
     Vk_Shader_Module(const std::string& spirv_file);
     ~Vk_Shader_Module();
     VkShaderModule handle;
-};
-
-struct Vk_Descriptor_Set_Layout {
-    static constexpr uint32_t max_bindings = 32;
-    VkDescriptorSetLayoutBinding bindings[max_bindings];
-    uint32_t binding_count = 0;
-
-    Vk_Descriptor_Set_Layout& sampled_image(uint32_t binding, VkShaderStageFlags stage_flags);
-    Vk_Descriptor_Set_Layout& sampled_image_array(uint32_t binding, uint32_t array_size, VkShaderStageFlags stage_flags);
-    Vk_Descriptor_Set_Layout& storage_image(uint32_t binding, VkShaderStageFlags stage_flags);
-    Vk_Descriptor_Set_Layout& sampler(uint32_t binding, VkShaderStageFlags stage_flags);
-    Vk_Descriptor_Set_Layout& uniform_buffer(uint32_t binding, VkShaderStageFlags stage_flags);
-    Vk_Descriptor_Set_Layout& storage_buffer(uint32_t binding, VkShaderStageFlags stage_flags);
-    Vk_Descriptor_Set_Layout& storage_buffer_array(uint32_t binding, uint32_t array_size, VkShaderStageFlags stage_flags);
-    Vk_Descriptor_Set_Layout& accelerator(uint32_t binding, VkShaderStageFlags stage_flags);
-    VkDescriptorSetLayout create(const char* name);
 };
 
 //
