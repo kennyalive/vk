@@ -1,6 +1,6 @@
 #pragma once
 
-constexpr int VK_VERSION = 3;
+constexpr int VK_VERSION = 4;
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -138,8 +138,13 @@ void vk_cmd_image_barrier_for_subresource(VkCommandBuffer command_buffer, VkImag
     VkPipelineStageFlags2 src_stage_mask, VkAccessFlags2 src_access_mask, VkImageLayout old_layout,
     VkPipelineStageFlags2 dst_stage_mask, VkAccessFlags2 dst_access_mask, VkImageLayout new_layout);
 
-
+// Queries
 uint32_t vk_allocate_timestamp_queries(uint32_t count);
+
+// Descriptor sizes
+uint32_t vk_image_descriptor_size();
+uint32_t vk_buffer_descriptor_size();
+uint32_t vk_sampler_descriptor_size();
 
 template <typename Vk_Object_Type>
 void vk_set_debug_name(Vk_Object_Type object, const char* name);
@@ -182,6 +187,7 @@ struct Vk_Instance {
 
     VkQueryPool                     timestamp_query_pools[2];
     VkQueryPool                     timestamp_query_pool; // timestamp_query_pool[frame_index]
+    std::vector<uint32_t>           timestamp_active_start_queries[2];
     uint32_t                        timestamp_query_count;
 
     // Host visible memory used to copy image data to device local memory.
@@ -191,6 +197,10 @@ struct Vk_Instance {
     uint8_t*                        staging_buffer_ptr; // pointer to mapped staging buffer
 
     VkDescriptorPool                imgui_descriptor_pool;
+
+    // Cached properties
+    VkPhysicalDeviceDescriptorHeapPropertiesEXT         descriptor_heap_properties{};
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR     ray_tracing_pipeline_properties{};
 };
 
 extern Vk_Instance vk;
@@ -231,7 +241,8 @@ VkDescriptorSetAndBindingMappingEXT map_binding_to_heap_offset(
 //
 struct Vk_Time_Keeper;
 
-struct Vk_Timer {
+struct Vk_Timer
+{
     Vk_Time_Keeper* time_keeper = nullptr;
     const char* name = nullptr;
     uint32_t start_query; // end_query == start_query + 1
@@ -242,21 +253,19 @@ struct Vk_Timer {
     void stop();
 };
 
-struct Vk_Time_Keeper {
+struct Vk_Time_Keeper
+{
     static constexpr uint32_t max_timers = 128;
-
-    Vk_Timer timers[max_timers];
+    Vk_Timer timers[max_timers]; // static array to have stable pointers
     uint32_t timer_count = 0;
-
-    Vk_Timer* frame_active_timers[max_timers];
-    int frame_active_timer_count = 0;
 
     Vk_Timer* allocate_timer(const char* name);
     void initialize_timers();
     void retrieve_query_results();
 };
 
-struct Vk_Time_Scope {
+struct Vk_Time_Scope
+{
     Vk_Time_Scope(Vk_Timer* timer)
         : timer(timer)
     {

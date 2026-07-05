@@ -316,6 +316,32 @@ void vk_initialize(GLFWwindow* window, const Vk_Init_Params& init_params)
         VK_CHECK(vkCreateQueryPool(vk.device, &create_info, nullptr, &vk.timestamp_query_pools[0]));
         VK_CHECK(vkCreateQueryPool(vk.device, &create_info, nullptr, &vk.timestamp_query_pools[1]));
     }
+
+    // Properties
+    {
+        auto is_enabled_extension = [&init_params](const char* ext_name) {
+            for (auto enabled_ext : init_params.device_extensions) {
+                if (strcmp(enabled_ext, ext_name) == 0) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        vk.descriptor_heap_properties = VkPhysicalDeviceDescriptorHeapPropertiesEXT{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT
+        };
+        vk.ray_tracing_pipeline_properties = VkPhysicalDeviceRayTracingPipelinePropertiesKHR{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR
+        };
+        VkPhysicalDeviceProperties2 physical_device_properties{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
+        };
+        physical_device_properties.pNext = &vk.descriptor_heap_properties;
+        if (is_enabled_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)) {
+            vk.descriptor_heap_properties.pNext = &vk.ray_tracing_pipeline_properties;
+        }
+        vkGetPhysicalDeviceProperties2(vk.physical_device, &physical_device_properties);
+    }
 }
 
 void vk_shutdown()
@@ -1089,6 +1115,21 @@ uint32_t vk_allocate_timestamp_queries(uint32_t count)
     return first_query;
 }
 
+uint32_t vk_image_descriptor_size()
+{
+    return (uint32_t)vk.descriptor_heap_properties.imageDescriptorSize;
+}
+
+uint32_t vk_buffer_descriptor_size()
+{
+    return (uint32_t)vk.descriptor_heap_properties.bufferDescriptorSize;
+}
+
+uint32_t vk_sampler_descriptor_size()
+{
+    return (uint32_t)vk.descriptor_heap_properties.samplerDescriptorSize;
+}
+
 //
 // Debug names
 //
@@ -1195,9 +1236,8 @@ VkDescriptorSetAndBindingMappingEXT map_binding_to_heap_offset(
 //
 void Vk_Timer::start()
 {
-    assert(time_keeper->frame_active_timer_count < Vk_Time_Keeper::max_timers);
-    time_keeper->frame_active_timers[time_keeper->frame_active_timer_count++] = this;
     vkCmdWriteTimestamp(vk.command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, vk.timestamp_query_pool, start_query);
+    vk.timestamp_active_start_queries[vk.frame_index].emplace_back(start_query);
 }
 
 void Vk_Timer::stop()
@@ -1221,20 +1261,14 @@ void Vk_Time_Keeper::initialize_timers()
     vk_execute(vk.command_pools[0], vk.queue, [this](VkCommandBuffer command_buffer) {
         vkCmdResetQueryPool(command_buffer, vk.timestamp_query_pools[0], 0, 2 * timer_count);
         vkCmdResetQueryPool(command_buffer, vk.timestamp_query_pools[1], 0, 2 * timer_count);
-        for (uint32_t i = 0; i < timer_count; i++) {
-            vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, vk.timestamp_query_pools[0], timers[i].start_query);
-            vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, vk.timestamp_query_pools[0], timers[i].start_query + 1);
-            vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, vk.timestamp_query_pools[1], timers[i].start_query);
-            vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, vk.timestamp_query_pools[1], timers[i].start_query + 1);
-            frame_active_timers[frame_active_timer_count++] = &timers[i];
-        }
-        });
+    });
 }
 
 void Vk_Time_Keeper::retrieve_query_results()
 {
-    for (int i = 0; i < frame_active_timer_count; i++) {
-        const uint32_t start_query = frame_active_timers[i]->start_query;
+    std::vector<uint32_t>& active_start_queries = vk.timestamp_active_start_queries[vk.frame_index];
+    for (size_t i = 0; i < active_start_queries.size(); i++) {
+        const uint32_t start_query = active_start_queries[i];
 
         uint64_t query_results[2 /*query result + availability*/ * 2 /*start+end timestamps*/];
         VkResult result = vkGetQueryPoolResults(vk.device, vk.timestamp_query_pool, start_query, 2,
@@ -1251,7 +1285,7 @@ void Vk_Time_Keeper::retrieve_query_results()
 
         vkCmdResetQueryPool(vk.command_buffer, vk.timestamp_query_pool, start_query, 2);
     }
-    frame_active_timer_count = 0;
+    active_start_queries.clear();
 }
 
 //
